@@ -67,7 +67,7 @@ struct File{
     //预先分配内存,减少内存分配次数
     ret.content.resize(file_size);
     file.read(
-        &(ret.content[0])
+        ret.content.data()
         ,static_cast<::std::streamsize>(file_size)
     );
     //文件内容读取不完整
@@ -114,7 +114,17 @@ struct File{
         return ::read_dir(path);
     }else{//文件路径
         ::std::vector<::File> ret={};
-        ret.emplace_back(::read_file(path,path.parent_path()));
+        //为了避免出现如下情况,扩展path为绝对路径:
+        //path:"file.txt"
+        //  parent_path:"" 
+        //  is_directory(parent_path) is false
+        //path:"./file.txt"
+        //  parent_path:"./"
+        //  is_directory(parent_path) is true
+        auto absolute_path=::std::filesystem::absolute(path);
+        ret.emplace_back(
+            ::read_file(absolute_path,absolute_path.parent_path())
+        );
         return ret;
     }
 }
@@ -189,7 +199,6 @@ bool is_big_endian(void){
     }
     ret.reserve(bytes);
     //遍历写入返回值
-    ::std::uint64_t index=0;
     ::std::uint64_t relative_path_bytes=0;
     ::std::uint64_t content_bytes=0;
     for(auto const& file:files){
@@ -208,14 +217,12 @@ bool is_big_endian(void){
             ,reinterpret_cast<char const*>(&(net.byte_array[0]))
             ,reinterpret_cast<char const*>(&(net.byte_array[0]))+8
         );
-        index+=8;
         //写入相对路径
         ret.insert(
             ret.end()
             ,relative_path_string.begin()
             ,relative_path_string.begin()+relative_path_bytes
         );
-        index+=relative_path_bytes;
         //写入文件内容的字节数(这部分占用8字节)
         content_bytes=static_cast<::std::uint64_t>(file.content.size());
         //首先把uint64_t从主机序转变为网络序
@@ -227,10 +234,8 @@ bool is_big_endian(void){
             ,reinterpret_cast<char const*>(&(net.byte_array[0]))
             ,reinterpret_cast<char const*>(&(net.byte_array[0]))+8
         );
-        index+=8;
         //写入文件内容
         ret.insert(ret.end(),file.content.begin(),file.content.end());
-        index+=content_bytes;
     }
     return ret;
 }
@@ -291,12 +296,9 @@ bool is_big_endian(void){
                 "Failed to extract package:incomplete content data"
             );
         }
-        content.clear();
-        content.reserve(content_bytes);
-        content.insert(
-            content.end()
-            ,static_cast<char const*>(&(package[index]))
-            ,static_cast<char const*>(&(package[index]))+content_bytes
+        content.assign(
+            package.begin()+index
+            ,package.begin()+index+content_bytes
         );
         ret.emplace_back(
             ::File{::std::filesystem::path{relative_path_string},content}
@@ -484,13 +486,13 @@ int main(int argc,char* argv[]){
         //得到包文件路径
         ::std::filesystem::path package_path=argv[2];
         //得到输出目录路径
-        ::std::filesystem::path output_direcatory_path=argv[3];
+        ::std::filesystem::path output_directory_path=argv[3];
         //根据包文件路径得到二进制字节序列
         ::std::vector<char> byte_array=::read_package(package_path);
         //将二进制字节序列解析为文件结构体序列
         ::std::vector<::File> files=::extract_package(byte_array);
         //将文件结构体序列中的每个成员解包为对应的文件
-        ::extract_files(files,output_direcatory_path);
+        ::extract_files(files,output_directory_path);
     }else{
         if("-a"!=::std::string{argv[1]}){
             ::help();
@@ -507,12 +509,11 @@ int main(int argc,char* argv[]){
             //检查输入路径是否存在
             ::std::filesystem::path input_path=argv[index];
             if(!::std::filesystem::exists(input_path)){
-                throw ::std::runtime_error("路径不存在"+input_path.string());
+                throw ::std::runtime_error(
+                    "Input path does not exist:"+input_path.string()
+                );
             }
-            //托展为绝对路径,避免出现如下情况:
-            //path:file.txt parent_path:"" is_directory() false
-            //path:./file.txt parent_path:"./" is_directory true
-            input_paths.emplace_back(::std::filesystem::absolute(input_path));
+            input_paths.emplace_back(input_path);
         }
         //得到包文件输出路径
         ::std::filesystem::path output_package_path=argv[argc-1];
