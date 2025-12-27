@@ -1,22 +1,23 @@
-#include<cstddef>//::std::size_t
-#include<cstdint>//::std::uint8_t ::std::uint16_t ::std::uint64_t
-#include<ios>//::std::ios ::std::streamsize
-#include<iostream>//::std::cout ::std::cin ::std::cerr
-#include<string>//::std::string
-#include<vector>//::std::vector
-#include<fstream>//::std::ifstream ::std::ofstream
-#include<exception>//::std::exception
-#include<stdexcept>// ::std::runtime_error
+#include<cstddef>   //::std::size_t
+#include<cstdint>   //::std::uint8_t ::std::uint16_t ::std::uint64_t
+#include<ios>       //::std::ios ::std::streamsize
+#include<iostream>  //::std::cout ::std::cin ::std::cerr
+#include<iterator>  //::std::make_move_iterator
+#include<string>    //::std::string
+#include<vector>    //::std::vector
+#include<fstream>   //::std::ifstream ::std::ofstream
+#include<exception> //::std::exception
+#include<stdexcept> //::std::runtime_error
 #include<filesystem>//::std::filesystem
 
-//我想自己制定一个压缩包:
-//压缩包的二进制的文件结构如下:
-//[A|B|C|D]
-//表示单个文件的信息
-//A部分是[path_size(8字节)]
-//B部分是[relative_path]
-//C部分是[content_size(8字节)]
-//D部分是[content(binary)]
+//作者制定了归档一个或多个(文件/目录)的包标准:
+//  包的二进制的文件结构如下:
+//      [file item 1]...[file item N]
+//  每个文件的二进制信息[file item]的文件结构是[A|B|C|D]:
+//      A部分是[path_size(8字节)]
+//      B部分是[relative_path]
+//      C部分是[content_size(8字节)]
+//      D部分是[content(binary)]
 
 //文件结构体
 struct File{
@@ -468,8 +469,11 @@ static bool const std_cout_init=[](void){
 }();
 void help(void){
     ::std::cout<<
-        "Usage:-a <input path> ... -o <output package path>\n"
-        "Usage:-x <input package path> <output directory path>\n";
+        "Usage(Pack  ): -a <input path> ... -o <output package path>\n"
+        "Usage(Unpack): -x <input package path> <output directory path>\n"
+        "Examples:\n"
+        "  Pack a file and directory: -a README.md source -o 0.fgwsz\n"
+        "  Unpack                   : -x 0.fgwsz output\n";
 }
 int main(int argc,char* argv[]){
     //输入参数太少
