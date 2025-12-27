@@ -1,5 +1,3 @@
 /build
-/binary-debug
-/binary-release
-/binary-debug.exe
-/binary-release.exe
+/fgwsz_package
+/fgwsz_package.exe
