@@ -363,6 +363,12 @@ void write_package(
             "Package path isn't file path:"+package_path.string()
         );
     }
+    //检查包路径的父路径是否存在,若不存在则创建父路径
+    auto absolute_path=::std::filesystem::absolute(package_path);
+    auto parent_path=absolute_path.parent_path();
+    if(!::std::filesystem::exists(parent_path)){
+        ::std::filesystem::create_directories(parent_path);
+    }
     //二进制覆盖方式打开包输出文件路径
     ::std::ofstream package_file(
         package_path
