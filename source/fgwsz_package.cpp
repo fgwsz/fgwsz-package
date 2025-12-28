@@ -9,6 +9,8 @@
 #include<exception> //::std::exception
 #include<stdexcept> //::std::runtime_error
 #include<filesystem>//::std::filesystem
+#include<random>    //::std::uniform_int_distribution ::std::random_device
+                    //::std::mt19937
 
 //作者制定了归档一个或多个(文件/目录)的包标准:
 //    包的二进制的文件结构如下:
@@ -507,6 +509,51 @@ void extract_files(
         ::extract_file(file,output_dir_path);
     }
 }
+//添加对包二进制内容的编码混淆
+::std::vector<char> encode_package(::std::vector<char> const& package){
+    if(package.empty()){
+        throw ::std::runtime_error("Package is empty in encode_package()");
+    }
+    //设置返回值初始值
+    ::std::vector<char> ret={};
+    ret.reserve(package.size()+1);//最后一位存放密钥
+    //生成随机数密钥
+    std::random_device rd;
+    std::mt19937 gen(rd());
+    std::uniform_int_distribution<::std::uint8_t> distrib(1,255);//[1,255]
+    ::std::uint8_t key=distrib(gen);
+    //进行编码混淆
+    for(char byte:package){
+        ret.emplace_back(
+            static_cast<char>(key^static_cast<::std::uint8_t>(byte))
+        );
+    }
+    ret.emplace_back(static_cast<char>(key));//最后一位存放密钥
+    return ret;
+}
+//解除对包二进制内容的编码混淆
+::std::vector<char> decode_package(::std::vector<char> const& package){
+    if(package.empty()){
+        throw ::std::runtime_error("Package is empty in decode_package()");
+    }
+    //得到密钥(包二进制字节序列最后一个字节)
+    auto key=static_cast<::std::uint8_t>(package[package.size()-1]);
+    if(0==key){//密钥不可能为0
+        throw ::std::runtime_error(
+            "Package is invalid:key cannot be 0 in encoded package"
+        );
+    }
+    //设置返回值初始值
+    ::std::vector<char> ret={};
+    ret.resize(package.size()-1);
+    //解除编码混淆
+    for(::std::uint64_t index=0;index<ret.size();++index){
+        ret[index]=static_cast<char>(
+            key^static_cast<::std::uint8_t>(package[index])
+        );
+    }
+    return ret;
+}
 static bool const std_cout_init=[](void){
     //关闭与C语言的输入输出流同步
     ::std::ios_base::sync_with_stdio(false);
@@ -550,8 +597,10 @@ int main(int argc,char* argv[]){
             ::std::filesystem::path output_directory_path=argv[3];
             //根据包文件路径得到二进制字节序列
             ::std::vector<char> byte_array=::read_package(package_path);
+            //解除针对包二进制内容的编码混淆
+            ::std::vector<char> package=::decode_package(byte_array);
             //将二进制字节序列解析为文件结构体序列
-            ::std::vector<::File> files=::extract_package(byte_array);
+            ::std::vector<::File> files=::extract_package(package);
             //将文件结构体序列中的每个成员解包为对应的文件
             ::extract_files(files,output_directory_path);
         }else{//打包模式
@@ -574,8 +623,10 @@ int main(int argc,char* argv[]){
             ::std::vector<::File> files=::read_paths(input_paths);
             //将文件结构体序列转换为二进制字节序列
             ::std::vector<char> byte_array=::create_package(files);
+            //添加针对包二进制内容的编码混淆
+            ::std::vector<char> package=::encode_package(byte_array);
             //将二进制字节序列写入包输出文件
-            ::write_package(output_package_path,byte_array);
+            ::write_package(output_package_path,package);
         }
     }catch(::std::exception const& e){
         ::std::cerr<<"Error:"<<e.what()<<'\n';
