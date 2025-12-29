@@ -1,6 +1,6 @@
 #include<cstddef>   //::std::size_t
 #include<cstdint>   //::std::uint8_t ::std::uint16_t ::std::uint64_t
-                    //::std::uintmax_t
+                    //::std::uint64_t
 #include<ios>       //::std::ios ::std::streamsize
 #include<iostream>  //::std::cout ::std::cin ::std::cerr
 #include<iterator>  //::std::make_move_iterator
@@ -14,35 +14,21 @@
                     //::std::mt19937
 #include<source_location>//::std::source_location
 #include<format>         //::std::format
-#include<array>          //::std::array
+#include<bit>            //::std::endian
 
 //作者制定了归档一个或多个(文件/目录)的包标准:
 //    包的二进制的文件结构如下:
 //        [file item 1]...[file item N]
-//    每个文件的二进制信息[file item]的文件结构是[A|B|C|D]:
+//    每个文件的二进制信息[file item]的文件结构是[K|A|B|C|D]:
+//        K部分是[key(1字节)]
 //        A部分是[relative path bytes(8字节)]
 //        B部分是[relative path]
 //        C部分是[content bytes(8字节)]
 //        D部分是[content(binary)]
 
-//文件结构体
-struct File{
-    ::std::filesystem::path relative_path;//归档之后的相对路径
-    ::std::vector<char> content;//文件内容
-    //生命周期
-    File(
-        ::std::filesystem::path const& file_relative_path
-        ,::std::vector<char> const& file_content
-    )noexcept
-        :relative_path(file_relative_path)
-        ,content(file_content)
-    {}
-    File(File const&)noexcept=default;
-    File& operator=(File const&)noexcept=default;
-    //移动语义
-    File(File&&)noexcept=default;
-    File& operator=(File&&)noexcept=default;
-};
+//============================================================================
+//路径安全相关
+//============================================================================
 //检查相对路径是否安全
 bool is_safe_relative_path(::std::filesystem::path const& relative_path){
     //空路径一定存在逻辑错误
@@ -57,13 +43,9 @@ bool is_safe_relative_path(::std::filesystem::path const& relative_path){
     }
     return true;
 }
-//密钥
-static ::std::uint8_t const key=[](void){
-    std::random_device rd;
-    std::mt19937 gen(rd());
-    std::uniform_int_distribution<::std::uint8_t> distrib(1,255);//[1,255]
-    return distrib(gen);
-};
+//============================================================================
+//异常处理相关
+//============================================================================
 //用于错误处理的字符串信息
 ::std::string what(
     ::std::string const& message
@@ -83,337 +65,334 @@ static ::std::uint8_t const key=[](void){
     throw ::std::runtime_error(::what(__VA_ARGS__)); \
 }while(0) \
 //
+//============================================================================
+//字节序相关
+//============================================================================
 //字节序辅助类
 template<typename UnsignedType>
 union EndianHelper{
     ::std::uint8_t byte_array[sizeof(UnsignedType)];
     UnsignedType number;
 };
-//判断主机字节序是否为小端序
-bool is_little_endian(void){
-    ::EndianHelper<::std::uint16_t> test;
-    test.number=0x1234;
-    //小端序:低位放在低地址
-    //所以,低8位0x34放在低地址&(byte_array[0])
-    return (test.byte_array[0]==0x34)&&(test.byte_array[1]==0x12);
-}
-//判断主机字节序是否为大端序
-bool is_big_endian(void){
-    return !::is_little_endian();
-}
-//将主机字节序64位无符号整数转换为同类型的网络字节序
-::std::uint64_t host_to_net_uint64(::std::uint64_t host_number){
-    if(::is_big_endian()){
-        return host_number;
-    }
-    ::EndianHelper<::std::uint64_t> host;
-    host.number=host_number;
-    ::EndianHelper<::std::uint64_t> net;
-    for(::std::uint8_t index=0;index<8;++index){
-        net.byte_array[7-index]=host.byte_array[index];
-    }
-    return net.number;
-}
-//将网络字节序64位无符号整数转换为同类型的主机字节序
-::std::uint64_t net_to_host_uint64(::std::uint64_t net_number){
-    if(::is_big_endian()){
-        return net_number;
-    }
-    ::EndianHelper<::std::uint64_t> net;
-    net.number=net_number;
-    ::EndianHelper<::std::uint64_t> host;
-    for(::std::uint8_t index=0;index<8;++index){
-        host.byte_array[7-index]=net.byte_array[index];
-    }
-    return host.number;
-}
 //将主机字节序无符号整数转换为同类型的网络字节序
 template<typename UnsignedType>
-UnsignedType host_to_net_uint(UnsignedType host_number){
-    if(::is_big_endian()){
+constexpr UnsignedType host_to_net_uint(UnsignedType host_number){
+    if constexpr(::std::endian::native==::std::endian::big){
         return host_number;
+    }else{
+        ::EndianHelper<UnsignedType> host;
+        host.number=host_number;
+        ::EndianHelper<UnsignedType> net;
+        for(::std::size_t index=0;index<sizeof(UnsignedType);++index){
+            net.byte_array[sizeof(UnsignedType)-1-index]=
+                host.byte_array[index];
+        }
+        return net.number;
     }
-    ::EndianHelper<UnsignedType> host;
-    host.number=host_number;
-    ::EndianHelper<UnsignedType> net;
-    for(::std::uint8_t index=0;index<sizeof(UnsignedType);++index){
-        net.byte_array[sizeof(UnsignedType)-1-index]=host.byte_array[index];
-    }
-    return net.number;
 }
 //将网络字节序无符号整数转换为同类型的主机字节序
 template<typename UnsignedType>
-UnsignedType net_to_host_uint(UnsignedType net_number){
-    if(::is_big_endian()){
+constexpr UnsignedType net_to_host_uint(UnsignedType net_number){
+    if constexpr(::std::endian::native==::std::endian::big){
         return net_number;
+    }else{
+        ::EndianHelper<UnsignedType> net;
+        net.number=net_number;
+        ::EndianHelper<UnsignedType> host;
+        for(::std::size_t index=0;index<sizeof(UnsignedType);++index){
+            host.byte_array[sizeof(UnsignedType)-1-index]=
+                net.byte_array[index];
+        }
+        return host.number;
     }
-    ::EndianHelper<UnsignedType> net;
-    net.number=net_number;
-    ::EndianHelper<UnsignedType> host;
-    for(::std::uint8_t index=0;index<sizeof(UnsignedType);++index){
-        host.byte_array[sizeof(UnsignedType)-1-index]=net.byte_array[index];
-    }
-    return host.number;
 }
-//打包模式
-//file_path:要打包的文件的路径
-void pack(
+//============================================================================
+//打包模式相关
+//============================================================================
+//打包模式初始化
+//若要使用打包模式请先调用该函数进行初始化
+inline void pack_mode_init(::std::filesystem::path const& package_path){
+    //检查包路径的父路径是否存在,若不存在则创建父路径
+    auto package_absolute_path=::std::filesystem::absolute(package_path);
+    auto package_parent_path=package_absolute_path.parent_path();
+    if(!::std::filesystem::exists(package_parent_path)){
+        ::std::filesystem::create_directories(package_parent_path);
+    }
+    //二进制覆盖方式打开包输出文件路径
+    ::std::ofstream package(
+        package_path
+        ,::std::ios::binary|::std::ios::trunc
+    );//确保包文件内容为空
+    //包输出文件路径打开失败
+    if(!package.is_open()){
+        THROW_RUNTIME_ERROR(
+            "Failed to open package file:"+package_path.string()
+        );
+    }
+}
+//打包单个文件内容到包
+inline void pack_file(
     ::std::filesystem::path const& file_path
     ,::std::filesystem::path const& base_dir_path
     ,::std::filesystem::path const& package_path
 ){
-//=============================================================================
-//输入参数检查
-//=============================================================================
+    //========================================================================
+    //输入参数检查阶段
+    //========================================================================
     //检查文件路径是否存在
     if(!::std::filesystem::exists(file_path)){
-        THROW_RUNTIME_ERROR("File path does not exist:"+file_path.string());
+        THROW_RUNTIME_ERROR(
+            "File path doesn't exist:"+file_path.string()
+        );
+    }
+    //检查文件路径是否为目录
+    if(::std::filesystem::is_directory(file_path)){
+        THROW_RUNTIME_ERROR(
+            "File path is directory:"+file_path.string()
+        );
     }
     //检查文件路径是否为符号链接
     if(::std::filesystem::is_symlink(file_path)){
         //读取符号链接内容设置为未定义行为
-        THROW_RUNTIME_ERROR("Read symlink file(UB):"+file_path.string());
+        THROW_RUNTIME_ERROR(
+            "File path is symlink(UB):"+file_path.string()
+        );
     }
     //检查基准目录路径是否存在
     if(!::std::filesystem::exists(base_dir_path)){
         THROW_RUNTIME_ERROR(
-            "Base dir path does not exist:"+base_dir_path.string()
+            "Base dir path doesn't exist:"+base_dir_path.string()
         );
     }
     //检查基准目录路径是否为目录
-    if(!::std::filesystem::is_directory(base_path)){
+    if(!::std::filesystem::is_directory(base_dir_path)){
         THROW_RUNTIME_ERROR(
-            "Base path isn't directory:"+base_path.string()
+            "Base path isn't directory:"+base_dir_path.string()
         );
     }
+    //检查包路径是否存在
+    if(!::std::filesystem::exists(package_path)){
+        THROW_RUNTIME_ERROR(
+            "Package path doesn't exist:"+package_path.string()
+        );
+    }
+    //检查包路径是否为目录
+    if(::std::filesystem::is_directory(package_path)){
+        THROW_RUNTIME_ERROR(
+            "Package path is directory:"+package_path.string()
+        );
+    }
+    //========================================================================
+    //文件头信息处理阶段
+    //========================================================================
+    //文件头信息包含4部分:
+    //[key|relative path bytes|relative path|content bytes]
+    //得到文件的密钥
+    //使用静态变量,确保只初始化一次随机设备
+    static std::random_device rd;
+    static std::mt19937 gen(rd());
+    static std::uniform_int_distribution<::std::uint8_t> distrib(1,255);
+        //[1,255]
+    ::std::uint8_t key=distrib(gen);
     //根据基准目录路径和文件路径得到归档之后的相对路径
-    auto relative_path=::std::filesystem::proximate(file_path,base_path);
+    auto relative_path=::std::filesystem::proximate(file_path,base_dir_path);
     //检查文件的相对路径是否安全(不安全情况,存在溢出输出目录的风险)
     if(!::is_safe_relative_path(relative_path)){
         THROW_RUNTIME_ERROR(
             "File relative path is unsafe:"+relative_path.string()
         );
     }
-    //检查包路径是否为文件路径
-    if(::std::filesystem::is_directory(package_path)){
-        THROW_RUNTIME_ERROR(
-            "Package path isn't file path:"+package_path.string()
-        );
-    }
-//=============================================================================
-//文件处理阶段
-//=============================================================================
-    //=========================================================================
-    //文件头信息存放到缓冲区
-    //=========================================================================
-    //文件头信息包含3部分:[relative_path size|relative_path|file_size]
+    //得到相对路径和相对路径的所占用的字节数
     ::std::string relative_path_string=relative_path.string();
-    ::std::uintmax_t relative_path_size=relative_path_string.size();
+    ::std::uint64_t relative_path_bytes=relative_path_string.size();
     //得到文件内容字节数
-    ::std::uintmax_t file_size=::std::filesystem::file_size(file_path);
-    //得到网络序文件相对路径字节数
-    auto net_relative_path_size=::host_to_net_uint<::std::uintmax_t>(
-        relative_path_size
-    );
-    //得到网络序文件内容字节数
-    auto net_file_size=::host_to_net_uint<::std::uintmax_t>(file_size);
-    //构建缓冲区
+    ::std::uint64_t content_bytes=::std::filesystem::file_size(file_path);
+    //构建文件头信息缓冲区
     ::std::vector<char> buffer={};
     buffer.resize(
-        sizeof(net_relative_path_size)+relative_path_size+sizeof(net_file_size)
+        sizeof(key)
+        +sizeof(relative_path_bytes)
+        +relative_path_bytes
+        +sizeof(content_bytes)
     );
     //将文件头信息写入缓冲区
-    ::std::memcpy(,&net_relative_path_size,sizeof(net_relative_path_size));
-    //=========================================================================
+    ::std::uint64_t buffer_index=0;
+    buffer[0]=key;
+    ++buffer_index;
+    ::EndianHelper<::std::uint64_t> net_endian;
+    net_endian.number=
+        ::host_to_net_uint<::std::uint64_t>(relative_path_bytes);
+    for(::std::uint8_t byte:net_endian.byte_array){
+        buffer[buffer_index]=static_cast<char>(byte);
+        ++buffer_index;
+    }
+    for(char byte:relative_path_string){
+        buffer[buffer_index]=byte;
+        ++buffer_index;
+    }
+    net_endian.number=
+        ::host_to_net_uint<::std::uint64_t>(content_bytes);
+    for(::std::uint8_t byte:net_endian.byte_array){
+        buffer[buffer_index]=static_cast<char>(byte);
+        ++buffer_index;
+    }
     //将缓冲区的文件头信息编码混淆
-    //=========================================================================
-    //=========================================================================
+    for(::std::uint64_t index=1;index<buffer.size();++index){
+        buffer[index]=
+            static_cast<char>(key^static<std::uint8_t>(buffer[index]));
+    }
+    //二进制拼接方式打开包输出文件路径
+    ::std::ofstream package(
+        package_path
+        ,::std::ios::binary|::std::ios::app
+    );
+    //包输出文件路径打开失败
+    if(!package.is_open()){
+        THROW_RUNTIME_ERROR(
+            "Failed to open package:"+package_path.string()
+        );
+    }
     //将缓冲区的文件头信息写入包
-    //=========================================================================
-    //=========================================================================
-    //将文件内容分块读取到缓冲区
-    //=========================================================================
-    relative_path_size,relative_path,file_size,
-    ::std::ifstream file(file_path,::std::ios::binary|::std::ios::ate);
-    //文件打不开
+    package.write(
+        buffer.data()
+        ,static_cast<::std::streamsize>(buffer.size())
+    );
+    package.flush();
+    //写入失败时
+    if(!package.good()){
+        THROW_RUNTIME_ERROR(
+            "Package write error:"+package_path.string()
+        );
+    }
+    //========================================================================
+    //文件内容信息处理阶段
+    //========================================================================
+    //二进制方式打开文件
+    ::std::ifstream file(file_path,::std::ios::binary);
+    //文件打不开时
     if(!file.is_open()){
         THROW_RUNTIME_ERROR("Failed to open file:"+file_path.string());
     }
-    //检查包路径的父路径是否存在,若不存在则创建父路径
-    auto absolute_path=::std::filesystem::absolute(package_path);
-    auto parent_path=absolute_path.parent_path();
-    if(!::std::filesystem::exists(parent_path)){
-        ::std::filesystem::create_directories(parent_path);
+    //设置内存块
+    constexpr ::std::uint64_t block_bytes=1024*1024;//1MB
+    char block[block_bytes];
+    //分块读取文件内容
+    ::std::uint64_t count_bytes=0;
+    ::std::uint64_t read_bytes=0;
+    while(count_bytes<content_bytes){
+        //读取文件内容到块中
+        file.read(
+            &(block[0])
+            ,static_cast<::std::streamsize>(block_bytes)
+        );
+        read_bytes=static_cast<::std::uint64_t>(file.gcount());
+        //将内存块中的文件内容信息编码混淆
+        for(::std::uint64_t index=0;index<read_bytes;++index){
+            block[index]=static_cast<char>(
+                key^static<std::uint8_t>(block[index])
+            );
+        }
+        //将内存块中的文件内容信息写入包
+        package.write(
+            &(block[0])
+            ,static_cast<::std::streamsize>(read_bytes)
+        );
+        package.flush();
+        //写入失败时
+        if(!package.good()){
+            THROW_RUNTIME_ERROR(
+                "Package write error:"+package_path.string()
+            );
+        }
+        //更新字节计数器
+        count_bytes+=read_bytes;
     }
-    //设置返回值初始值
-    auto ret=::File{relative_path,::std::vector<char>{}};
-    //读取文件内容
-    ::std::size_t file_size=file.tellg();
-    //文件内容为空,提前返回
-    if(0==file_size){
-        return ret;
-    }
-    file.seekg(0);
-    //预先分配内存,减少内存分配次数
-    ret.content.resize(file_size);
-    file.read(
-        ret.content.data()
-        ,static_cast<::std::streamsize>(file_size)
-    );
     //文件内容读取不完整
-    if(file.gcount()!=file_size){
-        throw ::std::runtime_error(
+    if(count_bytes!=content_bytes){
+        THROW_RUNTIME_ERROR(
             "File read incomplete:"+file_path.string()
         );
     }
-    return ret;
 }
-//打包模式
-//将二进制字节数组内容写入包文件
-void write_package(
-    ::std::filesystem::path const& package_path
-    ,::std::vector<char> const& package
+//打包单个目录到包
+inline void pack_dir(
+    ::std::filesystem::path const& dir_path
+    ,::std::filesystem::path const& package_path
 ){
-    //检查包路径是否为文件路径
-    if(::std::filesystem::is_directory(package_path)){
-        throw ::std::runtime_error(
-            "Package path isn't file path:"+package_path.string()
+    //========================================================================
+    //输入参数检查阶段
+    //========================================================================
+    //检查目录路径是否存在
+    if(!::std::filesystem::exists(dir_path)){
+        THROW_RUNTIME_ERROR(
+            "Dir path doesn't exist:"+dir_path.string()
         );
     }
-    //检查包路径的父路径是否存在,若不存在则创建父路径
-    auto absolute_path=::std::filesystem::absolute(package_path);
-    auto parent_path=absolute_path.parent_path();
-    if(!::std::filesystem::exists(parent_path)){
-        ::std::filesystem::create_directories(parent_path);
-    }
-    //二进制覆盖方式打开包输出文件路径
-    ::std::ofstream package_file(
-        package_path
-        ,::std::ios::binary|::std::ios::trunc
-    );
-    //包输出文件路径打开失败
-    if(!package_file.is_open()){
-        throw ::std::runtime_error(
-            "Failed to open package file:"+package_path.string()
-        );
-    }
-    //包为空时
-    if(package.empty()){
-        return;
-    }
-    //写入包内容到包输出文件路径
-    package_file.write(
-        package.data()
-        ,static_cast<::std::streamsize>(package.size())
-    );
-    //写入失败时
-    if(!package_file.good()){
-        throw ::std::runtime_error(
-            "Package file write error:"+package_path.string()
-        );
-    }
-}
-//打包模式
-//通过文件路径构造文件结构体
-::File read_file(
-    ::std::filesystem::path const& file_path
-    ,::std::filesystem::path const& base_path
-){
-    //检查文件路径是否为符号链接
-    if(::std::filesystem::is_symlink(file_path)){
-        //读取符号链接内容设置为未定义行为
-        throw ::std::runtime_error(
-            "Read symlink file(UB):"+file_path.string()
-        );
-    }
-    //检查输入参数有效性
-    ::std::ifstream file(file_path,::std::ios::binary|::std::ios::ate);
-    //文件打不开
-    if(!file.is_open()){
-        throw ::std::runtime_error("Failed to open file:"+file_path.string());
-    }
-    //基准路径不是目录
-    if(!::std::filesystem::is_directory(base_path)){
-        throw ::std::runtime_error(
-            "Base path isn't directory:"+base_path.string()
-        );
-    }
-    //根据基准路径和文件路径得到归档之后的相对路径
-    auto relative_path=::std::filesystem::proximate(file_path,base_path);
-    //检查文件的相对路径是否安全(不安全情况,存在溢出输出目录的风险)
-    if(!::is_safe_relative_path(relative_path)){
-        throw ::std::runtime_error(
-            "File relative path is unsafe:"+relative_path.string()
-        );
-    }
-    //设置返回值初始值
-    auto ret=::File{relative_path,::std::vector<char>{}};
-    //读取文件内容
-    ::std::size_t file_size=file.tellg();
-    //文件内容为空,提前返回
-    if(0==file_size){
-        return ret;
-    }
-    file.seekg(0);
-    //预先分配内存,减少内存分配次数
-    ret.content.resize(file_size);
-    file.read(
-        ret.content.data()
-        ,static_cast<::std::streamsize>(file_size)
-    );
-    //文件内容读取不完整
-    if(file.gcount()!=file_size){
-        throw ::std::runtime_error(
-            "File read incomplete:"+file_path.string()
-        );
-    }
-    return ret;
-}
-//打包模式
-//使用目录路径来构造文件结构体序列
-::std::vector<::File> read_dir(::std::filesystem::path const& dir_path){
-    //检查输入路径是否为目录
+    //检查目录路径是否指向目录
     if(!::std::filesystem::is_directory(dir_path)){
-        throw ::std::runtime_error(
+        THROW_RUNTIME_ERROR(
             "Dir path isn't directory:"+dir_path.string()
         );
     }
-    //设置返回值初始值
-    ::std::vector<::File> ret={};
-    //递归遍历所有的文件进行读取
+    //检查包路径是否存在
+    if(!::std::filesystem::exists(package_path)){
+        THROW_RUNTIME_ERROR(
+            "Package path doesn't exist:"+package_path.string()
+        );
+    }
+    //检查包路径是否为目录
+    if(::std::filesystem::is_directory(package_path)){
+        THROW_RUNTIME_ERROR(
+            "Package path is directory:"+package_path.string()
+        );
+    }
+    //========================================================================
+    //打包子文件阶段
+    //========================================================================
+    //递归遍历所有的子文件进行打包
     try{
-        ::std::filesystem::file_status status={};
         for(::std::filesystem::directory_entry const& dir_entry
             : ::std::filesystem::recursive_directory_iterator(dir_path)
         ){
-            //检查条目状态(不追踪符号链接)
-            status=dir_entry.symlink_status();
-            //跳过所有的目录
-            if(::std::filesystem::is_directory(status)){
-                continue;
-            }
-            //跳过所有符号链接文件,避免出现相对路径溢出解包输出路径的问题
-            if(::std::filesystem::is_symlink(status)){
-                continue;
-            }
-            //只对文件进行读取
-            ret.emplace_back(::read_file(dir_entry.path(),dir_path));
+            ::pack_file(dir_entry.path(),dir_path,package_path);
         }
-    }catch(::std::filesystem::filesystem_error const& e){
-        throw ::std::runtime_error(
-            "Failed to read files from directory:"+dir_path.string()
+    }catch(::std::exception const& e){
+        THROW_RUNTIME_ERROR(e.what());
+    }
+}
+//打包单个路径(目录/文件)到包
+inline void pack_path(
+    ::std::filesystem::path const& path
+    ,::std::filesystem::path const& package_path
+){
+    //========================================================================
+    //输入参数检查阶段
+    //========================================================================
+    //检查路径是否存在
+    if(!::std::filesystem::exists(path)){
+        THROW_RUNTIME_ERROR(
+            "Path doesn't exist:"+path.string()
         );
     }
-    return ret;
-}
-//打包模式
-//使用路径(文件路径/目录路径)来构造文件结构体序列
-::std::vector<::File> read_path(::std::filesystem::path const& path){
-    //检查输入路径类型
+    //检查包路径是否存在
+    if(!::std::filesystem::exists(package_path)){
+        THROW_RUNTIME_ERROR(
+            "Package path doesn't exist:"+package_path.string()
+        );
+    }
+    //检查包路径是否为目录
+    if(::std::filesystem::is_directory(package_path)){
+        THROW_RUNTIME_ERROR(
+            "Package path is directory:"+package_path.string()
+        );
+    }
+    //========================================================================
+    //打包目录/文件阶段
+    //========================================================================
+    //检查路径类型
     if(::std::filesystem::is_directory(path)){//目录路径
-        return ::read_dir(path);
+        ::pack_dir(path,package_path);
     }else{//文件路径
-        ::std::vector<::File> ret={};
         //为了避免出现如下情况,扩展path为绝对路径:
         //path:"file.txt"
         //  parent_path:"" 
@@ -422,309 +401,30 @@ void write_package(
         //  parent_path:"./"
         //  is_directory(parent_path) is true
         auto absolute_path=::std::filesystem::absolute(path);
-        ret.emplace_back(
-            ::read_file(absolute_path,absolute_path.parent_path())
-        );
-        return ret;
+        ::pack_file(absolute_path,absolute_path.parent_path(),package_path);
     }
 }
-//打包模式
-//使用路径序列来构造文件结构体序列
-::std::vector<::File> read_paths(
+//打包多个路径(目录/文件)到包
+inline void pack_paths(
     ::std::vector<::std::filesystem::path> const& paths
+    ,::std::filesystem::path const& package_path
 ){
-    ::std::vector<::File> ret={};
     for(auto const& path:paths){
-        ::std::vector<::File> files=::read_path(path);
-        ret.insert(ret.end()
-            ,::std::make_move_iterator(files.begin())
-            ,::std::make_move_iterator(files.end())
-        );
+        ::pack_path(path,package_path);
     }
-    return ret;
 }
-//打包模式
-//将文件结构体序列打包为二进制字节数组
-::std::vector<char> create_package(::std::vector<::File> const& files){
-    //设置返回值初始值
-    ::std::vector<char> ret={};
-    //预遍历提前分配返回值内存容量
-    ::std::uint64_t bytes=0;
-    for(auto const& file:files){
-        bytes+=16+file.relative_path.string().size()+file.content.size();
-    }
-    ret.reserve(bytes);
-    //遍历写入返回值
-    ::std::uint64_t relative_path_bytes=0;
-    ::std::uint64_t content_bytes=0;
-    for(auto const& file:files){
-        auto relative_path_string=file.relative_path.string();
-        //写入相对路径的字节数(这部分占用8字节)
-        relative_path_bytes=static_cast<::std::uint64_t>(
-            relative_path_string.size()
-        );
-        //首先把uint64_t从主机序转变为网络序
-        //把网络序写入char[8]
-        //从char[8]插入ret
-        ::EndianHelper<::std::uint64_t> net;
-        net.number=::host_to_net_uint64(relative_path_bytes);
-        ret.insert(
-            ret.end()
-            ,reinterpret_cast<char const*>(&(net.byte_array[0]))
-            ,reinterpret_cast<char const*>(&(net.byte_array[0]))+8
-        );
-        //写入相对路径
-        ret.insert(
-            ret.end()
-            ,relative_path_string.begin()
-            ,relative_path_string.begin()+relative_path_bytes
-        );
-        //写入文件内容的字节数(这部分占用8字节)
-        content_bytes=static_cast<::std::uint64_t>(file.content.size());
-        //首先把uint64_t从主机序转变为网络序
-        //把网络序写入char[8]
-        //从char[8]插入ret
-        net.number=::host_to_net_uint64(content_bytes);
-        ret.insert(
-            ret.end()
-            ,reinterpret_cast<char const*>(&(net.byte_array[0]))
-            ,reinterpret_cast<char const*>(&(net.byte_array[0]))+8
-        );
-        //写入文件内容
-        ret.insert(ret.end(),file.content.begin(),file.content.end());
-    }
-    return ret;
-}
-//解包模式
-//将二进制字节数组解析为文件结构体序列
-::std::vector<::File> extract_package(::std::vector<char> const& package){
-    //检查一下package的大小
-    if(package.size()<16){//小于一个文件内容的最小占用字节数
-        throw ::std::runtime_error(
-            "Failed to extract package:package too small"
-        );
-    }
-    ::std::vector<::File> ret={};
-    ::std::uint64_t relative_path_bytes=0;
-    ::std::uint64_t content_bytes=0;
-    ::EndianHelper<::std::uint64_t> net={};
-    ::std::string relative_path_string={};
-    ::std::vector<char> content={};
-    ::std::uint64_t index=0;
-    for(;index<package.size();){
-        //解析相对路径占用的字节数
-        if(index+8>=package.size()){
-            throw ::std::runtime_error(
-                "Failed to extract package:incomplete path length field"
-            );
-        }
-        net.number=0;
-        for(::std::uint8_t i=0;i<8;++i){
-            net.byte_array[i]=static_cast<::std::uint8_t>(package[index]);
-            ++index;
-        }
-        relative_path_bytes=::net_to_host_uint64(net.number);
-        //解析相对路径
-        if(index+relative_path_bytes>=package.size()){
-            throw ::std::runtime_error(
-                "Failed to extract package:incomplete path data"
-            );
-        }
-        relative_path_string.clear();
-        relative_path_string.reserve(relative_path_bytes);
-        relative_path_string.append(&package[index],relative_path_bytes);
-        index+=relative_path_bytes;
-        //解析文件内容占用的字节数
-        if(index+8>package.size()){
-            throw ::std::runtime_error(
-                "Failed to extract package:incomplete content length field"
-            );
-        }
-        net.number=0;
-        for(::std::uint8_t i=0;i<8;++i){
-            net.byte_array[i]=static_cast<::std::uint8_t>(package[index]);
-            ++index;
-        }
-        content_bytes=::net_to_host_uint64(net.number);
-        //解析文件内容
-        if(index+content_bytes>package.size()){
-            throw ::std::runtime_error(
-                "Failed to extract package:incomplete content data"
-            );
-        }
-        content.assign(
-            package.begin()+index
-            ,package.begin()+index+content_bytes
-        );
-        ret.emplace_back(
-            ::File{::std::filesystem::path{relative_path_string},content}
-        );
-        index+=content_bytes;
-    }
-    //检查解析字节数和包字节数的一致性
-    if(index!=package.size()){
-        throw ::std::runtime_error(
-            "Failed to extract package:extra data at end of package"
-        );
-    }
-    return ret;
-}
-//解包模式
-//将包文件内容读取为二进制字节数组
-::std::vector<char> read_package(::std::filesystem::path const& package_path){
-    //检查包路径是否为文件路径
-    if(::std::filesystem::is_directory(package_path)){
-        throw ::std::runtime_error(
-            "Package path isn't file path:"+package_path.string()
-        );
-    }
-    //使用二进制尾部打开方式
-    ::std::ifstream package_file(
-        package_path
-        ,::std::ios::binary|::std::ios::ate
-    );
-    //包文件路径打开失败
-    if(!package_file.is_open()){
-        throw ::std::runtime_error(
-            "Failed to open package file:"+package_path.string()
-        );
-    }
-    //得到包文件的字节数
-    ::std::size_t file_size=package_file.tellg();
-    //包为空时
-    if(0==file_size){
-        return {};
-    }
-    //读取包文件内容到内存中
-    package_file.seekg(0);
-    ::std::vector<char> ret={};
-    ret.resize(file_size);
-    package_file.read(
-        &ret[0]
-        ,static_cast<::std::streamsize>(file_size)
-    );
-    if(package_file.gcount()!=file_size){
-        throw ::std::runtime_error(
-            "Package file read incomplete:"+package_path.string()
-        );
-    }
-    return ret;
-}
-//解包模式
-//将文件结构体解包为文件
-void extract_file(
-    ::File const& file
-    ,::std::filesystem::path const& output_dir_path=
-        ::std::filesystem::current_path()
+//============================================================================
+//解包模式相关
+//============================================================================
+void unpack_package(
+    ::std::filesystem::path const& package_path
+    ,::std::filesystem::path const& output_dir_path
 ){
-    //检查文件的相对路径是否安全(不安全情况,存在溢出输出目录的风险)
-    if(!::is_safe_relative_path(file.relative_path)){
-        throw ::std::runtime_error(
-            "File relative path is unsafe:"+file.relative_path.string()
-        );
-    }
-    //构建输出文件路径
-    ::std::filesystem::path file_path=
-        output_dir_path/file.relative_path.string();
-    //检查输出文件路径的父路径是否存在,如果不存在就创建
-    if(!::std::filesystem::exists(file_path.parent_path())){
-        ::std::filesystem::create_directories(file_path.parent_path());
-    }
-    //检查文件路径是否为文件
-    if(::std::filesystem::is_directory(file_path)){
-        throw ::std::runtime_error(
-            "File path is directory:"+file_path.string()
-        );
-    }
-    //写入文件内容
-    //二进制覆盖方式打开包输出文件路径
-    ::std::ofstream ofs(
-        file_path
-        ,::std::ios::binary|::std::ios::trunc
-    );
-    //输出文件路径打开失败
-    if(!ofs.is_open()){
-        throw ::std::runtime_error(
-            "Failed to open file:"+file_path.string()
-        );
-    }
-    //写入包内容到包输出文件路径(包含包为空的情况)
-    ofs.write(
-        file.content.data()
-        ,static_cast<::std::streamsize>(file.content.size())
-    );
-    //写入失败时
-    if(!ofs.good()){
-        throw ::std::runtime_error(
-            "File write error:"+file_path.string()
-        );
-    }
+    //TODO
 }
-//解包模式
-//将文件结构体序列中的每个成员解包为对应的文件
-void extract_files(
-    ::std::vector<::File> const& files
-    ,::std::filesystem::path output_dir_path=::std::filesystem::current_path()
-){
-    //检查输出目录路径是否存在,如果不存在就创建
-    if(!::std::filesystem::exists(output_dir_path)){
-        ::std::filesystem::create_directories(output_dir_path);
-    }
-    //检查输出目录路径是否为目录
-    if(!::std::filesystem::is_directory(output_dir_path)){
-        throw ::std::runtime_error(
-            "Output dir path isn't directory path:"+output_dir_path.string()
-        );
-    }
-    for(auto const& file:files){
-        ::extract_file(file,output_dir_path);
-    }
-}
-//添加对包二进制内容的编码混淆
-::std::vector<char> encode_package(::std::vector<char> const& package){
-    if(package.empty()){
-        throw ::std::runtime_error("Package is empty in encode_package()");
-    }
-    //设置返回值初始值
-    ::std::vector<char> ret={};
-    ret.reserve(package.size()+1);//最后一位存放密钥
-    //生成随机数密钥
-    std::random_device rd;
-    std::mt19937 gen(rd());
-    std::uniform_int_distribution<::std::uint8_t> distrib(1,255);//[1,255]
-    ::std::uint8_t key=distrib(gen);
-    //进行编码混淆
-    for(char byte:package){
-        ret.emplace_back(
-            static_cast<char>(key^static_cast<::std::uint8_t>(byte))
-        );
-    }
-    ret.emplace_back(static_cast<char>(key));//最后一位存放密钥
-    return ret;
-}
-//解除对包二进制内容的编码混淆
-::std::vector<char> decode_package(::std::vector<char> const& package){
-    if(package.empty()){
-        throw ::std::runtime_error("Package is empty in decode_package()");
-    }
-    //得到密钥(包二进制字节序列最后一个字节)
-    auto key=static_cast<::std::uint8_t>(package[package.size()-1]);
-    if(0==key){//密钥不可能为0
-        throw ::std::runtime_error(
-            "Package is invalid:key cannot be 0 in encoded package"
-        );
-    }
-    //设置返回值初始值
-    ::std::vector<char> ret={};
-    ret.resize(package.size()-1);
-    //解除编码混淆
-    for(::std::uint64_t index=0;index<ret.size();++index){
-        ret[index]=static_cast<char>(
-            key^static_cast<::std::uint8_t>(package[index])
-        );
-    }
-    return ret;
-}
+//============================================================================
+//终端打印相关
+//============================================================================
 static bool const std_cout_init=[](void){
     //关闭与C语言的输入输出流同步
     ::std::ios_base::sync_with_stdio(false);
@@ -762,42 +462,19 @@ int main(int argc,char* argv[]){
                 ::help();
                 return 1;
             }
-            //得到包文件路径
             ::std::filesystem::path package_path=argv[2];
-            //得到输出目录路径
-            ::std::filesystem::path output_directory_path=argv[3];
-            //根据包文件路径得到二进制字节序列
-            ::std::vector<char> byte_array=::read_package(package_path);
-            //解除针对包二进制内容的编码混淆
-            ::std::vector<char> package=::decode_package(byte_array);
-            //将二进制字节序列解析为文件结构体序列
-            ::std::vector<::File> files=::extract_package(package);
-            //将文件结构体序列中的每个成员解包为对应的文件
-            ::extract_files(files,output_directory_path);
+            ::std::filesystem::path output_dir_path=argv[3];
+            ::unpack_package(package_path,output_dir_path);
+            //TODO
         }else{//打包模式
-            //得到包文件输出路径
-            ::std::filesystem::path output_package_path=argv[2];
-            //得到输入路径序列
+            ::std::filesystem::path package_path=argv[2];
             ::std::vector<::std::filesystem::path> input_paths={};
             input_paths.reserve(argc-3);
             for(int index=3;index<argc;++index){
-                //检查输入路径是否存在
-                ::std::filesystem::path input_path=argv[index];
-                if(!::std::filesystem::exists(input_path)){
-                    throw ::std::runtime_error(
-                        "Input path does not exist:"+input_path.string()
-                    );
-                }
-                input_paths.emplace_back(input_path);
+                input_paths.emplace_back(argv[index]);
             }
-            //使用输入路径序列来构造文件结构体序列
-            ::std::vector<::File> files=::read_paths(input_paths);
-            //将文件结构体序列转换为二进制字节序列
-            ::std::vector<char> byte_array=::create_package(files);
-            //添加针对包二进制内容的编码混淆
-            ::std::vector<char> package=::encode_package(byte_array);
-            //将二进制字节序列写入包输出文件
-            ::write_package(output_package_path,package);
+            ::pack_mode_init();
+            ::pack_paths(input_paths,package_path);
         }
     }catch(::std::exception const& e){
         ::std::cerr<<"Error:"<<e.what()<<'\n';
