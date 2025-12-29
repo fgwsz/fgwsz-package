@@ -30,7 +30,9 @@
 //路径安全相关
 //============================================================================
 //检查相对路径是否安全
-bool is_safe_relative_path(::std::filesystem::path const& relative_path){
+inline bool is_safe_relative_path(
+    ::std::filesystem::path const& relative_path
+){
     //空路径一定存在逻辑错误
     if(relative_path.empty()){
         return false;
@@ -47,7 +49,7 @@ bool is_safe_relative_path(::std::filesystem::path const& relative_path){
 //异常处理相关
 //============================================================================
 //用于错误处理的字符串信息
-::std::string what(
+inline ::std::string what(
     ::std::string const& message
     ,::std::source_location location=::std::source_location::current()
 ){
@@ -76,7 +78,7 @@ union EndianHelper{
 };
 //将主机字节序无符号整数转换为同类型的网络字节序
 template<typename UnsignedType>
-constexpr UnsignedType host_to_net_uint(UnsignedType host_number){
+inline constexpr UnsignedType host_to_net_uint(UnsignedType host_number){
     if constexpr(::std::endian::native==::std::endian::big){
         return host_number;
     }else{
@@ -92,7 +94,7 @@ constexpr UnsignedType host_to_net_uint(UnsignedType host_number){
 }
 //将网络字节序无符号整数转换为同类型的主机字节序
 template<typename UnsignedType>
-constexpr UnsignedType net_to_host_uint(UnsignedType net_number){
+inline constexpr UnsignedType net_to_host_uint(UnsignedType net_number){
     if constexpr(::std::endian::native==::std::endian::big){
         return net_number;
     }else{
@@ -416,7 +418,7 @@ inline void pack_paths(
 //============================================================================
 //解包模式相关
 //============================================================================
-void unpack_package(
+inline void unpack_package(
     ::std::filesystem::path const& package_path
     ,::std::filesystem::path const& output_dir_path
 ){
@@ -433,7 +435,7 @@ static bool const std_cout_init=[](void){
     ::std::cout.tie(nullptr);
     return true;
 }();
-void help(void){
+inline void help(void){
     ::std::cout<<
 R"(Usages:
     Pack  : -c <output package path> <input path 1> ... <input path N>
