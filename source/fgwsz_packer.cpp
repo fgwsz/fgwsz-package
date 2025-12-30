@@ -183,5 +183,10 @@ void Packer::pack_path(::std::filesystem::path const& path){
         this->pack_file(path,::fgwsz::parent_path(path));
     }
 }
+void Packer::pack_paths(::std::vector<::std::filesystem::path> const& paths){
+    for(auto const& path:paths){
+        this->pack_path(path);
+    }
+}
 
 }//namespace fgwsz

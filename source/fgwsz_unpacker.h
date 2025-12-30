@@ -15,6 +15,9 @@ public:
     ~Unpacker(void);
     //解包到指定的输出目录下
     void unpack_package(::std::filesystem::path const& output_dir_path);
+    //禁止拷贝
+    Unpacker(Unpacker const&)noexcept=delete;
+    Unpacker& operator=(Unpacker const&)noexcept=delete;
 private:
     ::std::ifstream package_;
     ::std::string package_path_string_;
