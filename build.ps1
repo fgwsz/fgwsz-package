@@ -6,6 +6,6 @@ if(!(Test-Path -Path $build_path)){
 }
 cd $build_path
 cmake -G "Visual Studio 17 2022" ../..
-cmake --build . --config Release
+cmake --build . --config Debug
 cd ../..
-Move-Item -Path "$build_path/Release/$project_name.exe" -Destination "$root_path/$project_name.exe" -Force
+Move-Item -Path "$build_path/Debug/$project_name.exe" -Destination "$root_path/$project_name.exe" -Force

@@ -54,7 +54,12 @@ void Packer::pack_file(
     //文件头信息包含4部分:
     //[key|relative path bytes|relative path|content bytes]
     //得到文件的密钥
+#ifndef _MSC_VER
     auto key=::fgwsz::random<::std::uint8_t>(1,255);
+#else
+    auto key=
+        static_cast<::std::uint8_t>(::fgwsz::random<unsigned short>(1,255));
+#endif
     //根据基准目录路径和文件路径得到归档之后的相对路径
     auto relative_path=::fgwsz::relative_path(file_path,base_dir_path);
     //检查文件的相对路径是否安全(不安全情况,存在溢出输出目录的风险)

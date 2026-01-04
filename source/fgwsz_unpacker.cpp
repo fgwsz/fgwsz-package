@@ -64,6 +64,7 @@ void Unpacker::unpack_package(::std::filesystem::path const& output_dir_path){
     ::fgwsz::EndianHelper<::std::uint64_t> net;
     //文件路径
     ::std::filesystem::path file_path={};
+    ::std::string file_path_string={};
     //文件输出流对象
     ::std::ofstream file={};
     while(package_count_bytes<(this->package_bytes_)){
@@ -162,8 +163,9 @@ void Unpacker::unpack_package(::std::filesystem::path const& output_dir_path){
         );
         //文件输出流关联文件路径
         file.open(file_path,::std::ios::binary|::std::ios::trunc);
+        file_path_string=file_path.string();
         if(!file.is_open()){
-            FGWSZ_THROW_WHAT("file isn't open: "+file_path.string());
+            FGWSZ_THROW_WHAT("file isn't open: "+file_path_string);
         }
         //分块读取content
         file_count_bytes=0;
@@ -188,12 +190,12 @@ void Unpacker::unpack_package(::std::filesystem::path const& output_dir_path){
                 file
                 ,&(block[0])
                 ,read_bytes
-                ,file_path
+                ,file_path_string
             );
             file_count_bytes+=read_bytes;
         }
         if(file_count_bytes!=content_bytes){
-            FGWSZ_THROW_WHAT("file write incomplete: "+file_path.string());
+            FGWSZ_THROW_WHAT("file write incomplete: "+file_path_string);
         }
         //关闭文件输出流与当前文件路径的关联
         file.close();
