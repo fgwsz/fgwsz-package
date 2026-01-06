@@ -22,7 +22,7 @@ Packer::Packer(::std::filesystem::path const& package_path){
     //检查包路径不为目录路径
     ::fgwsz::path_assert_is_not_directory(package_path);
     //初始化包文件路径字符串(用于抛出异常时的信息显示)
-    this->package_path_string_=package_path.string();
+    this->package_path_string_=package_path.generic_string();
     //二进制覆盖方式打开包输出文件路径
     this->package_.open(package_path,::std::ios::binary|::std::ios::trunc);
     //包输出文件路径打开失败
@@ -68,7 +68,7 @@ void Packer::pack_file(
     //检查文件的相对路径是否安全(不安全情况,存在溢出输出目录的风险)
     ::fgwsz::path_assert_is_safe_relative_path(relative_path);
     //得到相对路径和相对路径的所占用的字节数
-    ::std::string relative_path_string=relative_path.string();
+    ::std::string relative_path_string=relative_path.generic_string();
     ::std::uint64_t relative_path_bytes=relative_path_string.size();
     //得到文件内容字节数
     ::std::uint64_t content_bytes=::std::filesystem::file_size(file_path);
@@ -119,7 +119,7 @@ void Packer::pack_file(
     //========================================================================
     //二进制方式打开文件
     ::std::ifstream file(file_path,::std::ios::binary);
-    ::std::string file_path_string=file_path.string();
+    ::std::string file_path_string=file_path.generic_string();
     //文件打不开时
     if(!file.is_open()){
         FGWSZ_THROW_WHAT("failed to open file: "+file_path_string);

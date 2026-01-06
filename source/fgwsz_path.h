@@ -11,32 +11,32 @@
 namespace fgwsz{
 inline void path_assert_exists(::std::filesystem::path const& path){
     if(!::std::filesystem::exists(path)){
-        FGWSZ_THROW_WHAT("path doesn't exist: "+path.string());
+        FGWSZ_THROW_WHAT("path doesn't exist: "+path.generic_string());
     }
 }
 inline void path_assert_not_exists(::std::filesystem::path const& path){
     if(::std::filesystem::exists(path)){
-        FGWSZ_THROW_WHAT("path does exist: "+path.string());
+        FGWSZ_THROW_WHAT("path does exist: "+path.generic_string());
     }
 }
 inline void path_assert_is_directory(::std::filesystem::path const& path){
     if(!::std::filesystem::is_directory(path)){
-        FGWSZ_THROW_WHAT("path isn't directory: "+path.string());
+        FGWSZ_THROW_WHAT("path isn't directory: "+path.generic_string());
     }
 }
 inline void path_assert_is_not_directory(::std::filesystem::path const& path){
     if(::std::filesystem::is_directory(path)){
-        FGWSZ_THROW_WHAT("path is directory: "+path.string());
+        FGWSZ_THROW_WHAT("path is directory: "+path.generic_string());
     }
 }
 inline void path_assert_is_symlink(::std::filesystem::path const& path){
     if(!::std::filesystem::is_symlink(path)){
-        FGWSZ_THROW_WHAT("path isn't symlink: "+path.string());
+        FGWSZ_THROW_WHAT("path isn't symlink: "+path.generic_string());
     }
 }
 inline void path_assert_is_not_symlink(::std::filesystem::path const& path){
     if(::std::filesystem::is_symlink(path)){
-        FGWSZ_THROW_WHAT("path is symlink: "+path.string());
+        FGWSZ_THROW_WHAT("path is symlink: "+path.generic_string());
     }
 }
 //一个特性(或者是BUG):
@@ -75,7 +75,9 @@ inline void path_assert_is_safe_relative_path(
     ::std::filesystem::path const& relative_path
 ){
     if(!::fgwsz::is_safe_relative_path(relative_path)){
-        FGWSZ_THROW_WHAT("relative path is unsafe: "+relative_path.string());
+        FGWSZ_THROW_WHAT(
+            "relative path is unsafe: "+relative_path.generic_string()
+        );
     }
 }
 inline void try_create_directories(

@@ -21,7 +21,7 @@ Unpacker::Unpacker(::std::filesystem::path const& package_path){
     //检查包路径不为目录路径
     ::fgwsz::path_assert_is_not_directory(package_path);
     //初始化包文件路径字符串(用于抛出异常时的信息显示)
-    this->package_path_string_=package_path.string();
+    this->package_path_string_=package_path.generic_string();
     //二进制方式打开包文件
     this->package_.open(package_path,::std::ios::binary);
     //包文件打开失败
@@ -170,7 +170,7 @@ void Unpacker::unpack_package(::std::filesystem::path const& output_dir_path){
         );
         //文件输出流关联文件路径
         file.open(file_path,::std::ios::binary|::std::ios::trunc);
-        file_path_string=file_path.string();
+        file_path_string=file_path.generic_string();
         if(!file.is_open()){
             FGWSZ_THROW_WHAT("file isn't open: "+file_path_string);
         }

@@ -7,6 +7,7 @@
 #include"fgwsz_except.h"
 #include"fgwsz_packer.h"
 #include"fgwsz_unpacker.h"
+#include"fgwsz_encoding.h"
 
 //终端打印帮助信息
 inline void help(void){
@@ -45,7 +46,7 @@ int main(int argc,char* argv[]){
                 if(!::std::filesystem::exists(path)){
                     has_next=false;
                     ::fgwsz::cout<<::fgwsz::what(
-                        "path doesn't exist: "+path.string()
+                        "path doesn't exist: "+path.generic_string()
                     )<<'\n';
                 }
             }
