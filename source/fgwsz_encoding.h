@@ -1,6 +1,8 @@
 #ifndef FGWSZ_ENCODING_H
 #define FGWSZ_ENCODING_H
 
+#ifdef _WIN32
+
 #include<cstddef>//::std::size_t
 #include<cstring>//::std::memcpy
 
@@ -224,5 +226,7 @@ bool is_utf16(char const* input,::std::size_t length){
 }
 
 }//namespace fgwsz::detail
+
+#endif//_WIN32
 
 #endif//FGWSZ_ENCODING_H
