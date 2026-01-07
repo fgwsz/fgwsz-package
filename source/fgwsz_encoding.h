@@ -13,6 +13,7 @@
 //接口声明
 namespace fgwsz{
 inline ::std::string auto_to_utf8(::std::string const& input);
+inline ::std::string utf8_to_utf16le(::std::string const& input);
 }//namespace fgwsz
 
 namespace fgwsz::detail{
@@ -40,6 +41,48 @@ namespace fgwsz{
         return input;
     }
     return ::fgwsz::detail::auto_to_utf8(input.data(),input.length());
+}
+::std::string utf8_to_utf16le(std::string const& utf8_str){
+    if(utf8_str.empty()){
+        return ::std::string();
+    }
+    //计算所需的宽字符数量
+    int wide_len=MultiByteToWideChar(
+        CP_UTF8,            //UTF-8编码
+        0,                  //标志位
+        utf8_str.c_str(),   //输入字符串
+        -1,                 //字符串以null结尾
+        nullptr,            //不输出,仅获取长度
+        0                   //请求缓冲区大小
+    );
+    if(wide_len==0){
+        throw std::runtime_error("MultiByteToWideChar failed: "+
+                                std::to_string(GetLastError()));
+    }
+    //分配缓冲区
+    ::std::vector<wchar_t> wide_buffer(wide_len);
+    // 执行转换
+    int result=MultiByteToWideChar(
+        CP_UTF8,
+        0,
+        utf8_str.c_str(),
+        -1,
+        wide_buffer.data(),
+        wide_len
+    );
+    if(result==0){
+        throw std::runtime_error("MultiByteToWideChar failed: "+
+                                std::to_string(GetLastError()));
+    }
+    //转换为UTF-16LE字节流
+    ::std::string utf16le_str;
+    utf16le_str.resize((wide_len-1)*sizeof(wchar_t));//减去null终止符
+    //复制字节数据(Windows上wchar_t是UTF-16LE)
+    char const* src_bytes=reinterpret_cast<char const*>(wide_buffer.data());
+    char* dst_bytes=&utf16le_str[0];
+    ::std::size_t byte_count=(wide_len-1)*sizeof(wchar_t);
+    ::std::memcpy(dst_bytes,src_bytes,byte_count);
+    return utf16le_str;
 }
 
 }//namespace fgwsz

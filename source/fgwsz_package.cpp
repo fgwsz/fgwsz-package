@@ -7,7 +7,6 @@
 #include"fgwsz_except.h"
 #include"fgwsz_packer.h"
 #include"fgwsz_unpacker.h"
-#include"fgwsz_encoding.h"
 
 //终端打印帮助信息
 inline void help(void){
@@ -61,6 +60,7 @@ int main(int argc,char* argv[]){
                 ::help();
                 return -1;
             }
+            
             ::fgwsz::Unpacker unpacker(argv[2]);
             unpacker.unpack_package(argv[3]);
         }
