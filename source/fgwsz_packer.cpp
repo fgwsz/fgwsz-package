@@ -13,7 +13,6 @@
 #include"fgwsz_path.h"
 #include"fgwsz_random.hpp"
 #include"fgwsz_fstream.h"
-#include"fgwsz_encoding.h"
 
 namespace fgwsz{
 
@@ -56,27 +55,16 @@ void Packer::pack_file(
     //文件头信息包含4部分:
     //[key|relative path bytes|relative path|content bytes]
     //得到文件的密钥
-#ifndef _MSC_VER
-    auto key=::fgwsz::random<::std::uint8_t>(1,255);
-#else
     //MSVC中没有实现特化类型为::std::uint8_t的随机数生成器
     //因此改为使用更大取值范围的无符号整数类型转到::std::uint8_t
     auto key=
         static_cast<::std::uint8_t>(::fgwsz::random<unsigned short>(1,255));
-#endif
     //根据基准目录路径和文件路径得到归档之后的相对路径
     auto relative_path=::fgwsz::relative_path(file_path,base_dir_path);
     //检查文件的相对路径是否安全(不安全情况,存在溢出输出目录的风险)
     ::fgwsz::path_assert_is_safe_relative_path(relative_path);
     //得到相对路径和相对路径的所占用的字节数
-#ifndef _WIN32
     ::std::string relative_path_string=relative_path.generic_string();
-#else
-    //修正windows平台的相对路径编码问题
-    ::std::string relative_path_string=::fgwsz::wide_to_utf8(
-        relative_path.generic_wstring()
-    );
-#endif
     ::std::uint64_t relative_path_bytes=relative_path_string.size();
     //得到文件内容字节数
     ::std::uint64_t content_bytes=::std::filesystem::file_size(file_path);
@@ -134,13 +122,9 @@ void Packer::pack_file(
     }
     //设置内存块
     constexpr ::std::uint64_t block_bytes=1024*1024;//1MB
-#ifndef _MSC_VER
-    char block[block_bytes];
-#else
     //MSVC中栈全部内存默认1MB,直接分配在栈上会导致栈溢出,改为分配在堆上
     auto block_body=::std::make_unique<char[]>(block_bytes);
     char* block=block_body.get();
-#endif
     //分块读取文件内容
     ::std::uint64_t count_bytes=0;
     ::std::uint64_t read_bytes=0;

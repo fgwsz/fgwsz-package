@@ -12,7 +12,6 @@
 #include"fgwsz_except.h"
 #include"fgwsz_path.h"
 #include"fgwsz_fstream.h"
-#include"fgwsz_encoding.h"
 
 namespace fgwsz{
 
@@ -50,13 +49,9 @@ void Unpacker::unpack_package(::std::filesystem::path const& output_dir_path){
     ::std::vector<char> buffer={};
     //用于读取文件内容信息的内存块
     constexpr ::std::uint64_t block_bytes=1024*1024;//1MB
-#ifndef _MSC_VER
-    char block[block_bytes];
-#else
     //MSVC中栈全部内存默认1MB,直接分配在栈上会导致栈溢出,改为分配在堆上
     auto block_body=::std::make_unique<char[]>(block_bytes);
     char* block=block_body.get();
-#endif
     //用于记录已读取包内容字节数的计数器
     ::std::uint64_t package_count_bytes=0;
     //用于记录已读取/写入文件内容字节数的计数器
@@ -164,17 +159,8 @@ void Unpacker::unpack_package(::std::filesystem::path const& output_dir_path){
         //文件内容信息处理阶段
         //====================================================================
         //创建文件父目录
-#ifndef _WIN32
         file_path=
             ::std::filesystem::absolute(output_dir_path/relative_path_string);
-#else
-        file_path=::std::filesystem::absolute(
-            output_dir_path
-            /::std::filesystem::path(
-                ::fgwsz::utf8_to_wide(relative_path_string)
-            )
-        );
-#endif
         ::fgwsz::try_create_directories(
             ::fgwsz::parent_path(file_path)
         );
