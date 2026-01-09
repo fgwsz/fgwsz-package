@@ -1,7 +1,7 @@
-#include<string>    //::std::string
-#include<exception> //::std::exception
-#include<vector>    //::std::vector
-#include<filesystem>//::std::filesystem
+#include<string_view>   //::std::string_view
+#include<exception>     //::std::exception
+#include<vector>        //::std::vector
+#include<filesystem>    //::std::filesystem
 
 #include"fgwsz_cout.h"
 #include"fgwsz_except.h"
@@ -28,19 +28,9 @@ int main(int argc,char* argv[]){
         ::help();
         return -1;
     }
-    //检查功能选项
-    ::std::string option=argv[1];
-    if(option!="-c"&&option!="-x"&&option!="-l"){
-        ::help();
-        return -1;
-    }
+    ::std::string_view option=argv[1];
     try{
-        if('c'==option[1]){//打包模式
-            //输入参数太少
-            if(argc<4){
-                ::help();
-                return -1;
-            }
+        if("-c"==option&&argc>=4){//打包模式
             ::std::vector<::std::filesystem::path> paths;
             paths.reserve(argc-3);
             for(int index=3;index<argc;++index){
@@ -61,17 +51,15 @@ int main(int argc,char* argv[]){
             }
             ::fgwsz::Packer packer(argv[2]);
             packer.pack_paths(paths);
-        }else if('x'==option[1]){//解包模式
-            //排除解包模式输入参数错误的情况
-            if(argc!=4){
-                ::help();
-                return -1;
-            }
+        }else if("-x"==option&&4==argc){//解包模式
             ::fgwsz::Unpacker unpacker(argv[2]);
             unpacker.unpack_package(argv[3]);
-        }else{//列表模式
+        }else if("-l"==option&&3==argc){//列表模式
             ::fgwsz::Unpacker unpacker(argv[2]);
             unpacker.list_package();
+        }else{
+            ::help();
+            return -1;
         }
     }catch(::std::exception const& e){
         ::fgwsz::cout<<e.what()<<'\n';
