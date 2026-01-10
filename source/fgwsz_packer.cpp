@@ -37,18 +37,26 @@ Packer::~Packer(void){
         this->package_.close();
     }
 }
+void Packer::package_write(void const* src,::std::uint64_t bytes){
+   ::fgwsz::std_ofstream_write(
+        this->package_
+        ,reinterpret_cast<char const*>(src)
+        ,static_cast<::std::streamsize>(bytes)
+        ,this->package_path_string_
+    );
+}
+void Packer::key_xor(void* ptr,::std::uint64_t bytes){
+    for(::std::uint64_t index=0;index<bytes;++index){
+        reinterpret_cast<::std::uint8_t*>(ptr)[index]^=this->header_.key;
+    }
+}
 void Packer::pack_key(void){
     //MSVC中没有实现特化类型为::std::uint8_t的随机数生成器
     //因此改为使用更大取值范围的无符号整数类型转到::std::uint8_t
     this->header_.key=
         static_cast<::std::uint8_t>(::fgwsz::random<unsigned short>(1,255));
     //将key写入包
-    ::fgwsz::std_ofstream_write(
-        this->package_
-        ,reinterpret_cast<char*>(&(this->header_.key))
-        ,static_cast<::std::streamsize>(sizeof(this->header_.key))
-        ,this->package_path_string_
-    );
+    this->package_write(&(this->header_.key),sizeof(this->header_.key));
 }
 void Packer::pack_relative_path(
     ::std::filesystem::path const& file_path
@@ -60,57 +68,43 @@ void Packer::pack_relative_path(
     ::fgwsz::path_assert_is_safe_relative_path(relative_path);
     this->header_.relative_path_string=relative_path.generic_string();
     //将relative_path_bytes转换为网络序
-    this->header_.relative_path_bytes=::fgwsz::host_to_net<::std::uint64_t>(
-        static_cast<::std::uint64_t>(this->header_.relative_path_string.size())
-    );
-    //使用key对relative_path_bytes和relative_path_string进行xor混淆
-    for(::std::uint64_t index=0;index<sizeof(::std::uint64_t);++index){
-        reinterpret_cast<char*>(&(this->header_.relative_path_bytes))[index]=
-            static_cast<::std::uint8_t>(
-                reinterpret_cast<char*>(&(this->header_.relative_path_bytes))
-                [index]
-            )^this->header_.key;
-    }
-    for(char& ch:this->header_.relative_path_string){
-        ch=static_cast<::std::uint8_t>(ch)^this->header_.key;
-    }
-    //将relative_path_bytes和relative_path_string写入包
-    ::fgwsz::std_ofstream_write(
-        this->package_
-        ,reinterpret_cast<char*>(&(this->header_.relative_path_bytes))
-        ,static_cast<::std::streamsize>(
-            sizeof(this->header_.relative_path_bytes)
-        )
-        ,this->package_path_string_
-    );
-    ::fgwsz::std_ofstream_write(
-        this->package_
-        ,this->header_.relative_path_string.data()
-        ,static_cast<::std::streamsize>(
+    this->header_.relative_path_bytes=::fgwsz::host_to_net(
+        static_cast<::std::uint64_t>(
             this->header_.relative_path_string.size()
         )
-        ,this->package_path_string_
+    );
+    //使用key对relative_path_bytes和relative_path_string进行xor混淆
+    this->key_xor(
+        &(this->header_.relative_path_bytes)
+        ,sizeof(this->header_.relative_path_bytes)
+    );
+    this->key_xor(
+        this->header_.relative_path_string.data()
+        ,this->header_.relative_path_string.size()
+    );
+    //将relative_path_bytes和relative_path_string写入包
+    this->package_write(
+        &(this->header_.relative_path_bytes)
+        ,sizeof(this->header_.relative_path_bytes)
+    );
+    this->package_write(
+        this->header_.relative_path_string.data()
+        ,this->header_.relative_path_string.size()
     );
 }
 void Packer::pack_content_bytes(::std::filesystem::path const& file_path){
     //将content_bytes转换为网络序
     this->content_bytes_=::std::filesystem::file_size(file_path);
-    this->header_.content_bytes=::fgwsz::host_to_net<::std::uint64_t>(
-        static_cast<::std::uint64_t>(this->content_bytes_)
-    );
+    this->header_.content_bytes=::fgwsz::host_to_net(this->content_bytes_);
     //使用key对content_bytes进行xor混淆
-    for(::std::uint64_t index=0;index<sizeof(::std::uint64_t);++index){
-        reinterpret_cast<char*>(&(this->header_.content_bytes))[index]=
-            static_cast<::std::uint8_t>(
-                reinterpret_cast<char*>(&(this->header_.content_bytes))[index]
-            )^this->header_.key;
-    }
+    this->key_xor(
+        &(this->header_.content_bytes)
+        ,sizeof(this->header_.content_bytes)
+    );
     //将content_bytes写入包
-    ::fgwsz::std_ofstream_write(
-        this->package_
-        ,reinterpret_cast<char*>(&(this->header_.content_bytes))
-        ,static_cast<::std::streamsize>(sizeof(this->header_.content_bytes))
-        ,this->package_path_string_
+    this->package_write(
+        &(this->header_.content_bytes)
+        ,sizeof(this->header_.content_bytes)
     );
 }
 void Packer::pack_header(
@@ -129,7 +123,6 @@ void Packer::pack_content(::std::filesystem::path const& file_path){
     if(!file.is_open()){
         FGWSZ_THROW_WHAT("failed to open file: "+file_path_string);
     }
-    char* block=this->block_.get();
     //分块读取文件内容
     ::std::uint64_t count_bytes=0;
     ::std::uint64_t read_bytes=0;
@@ -138,24 +131,15 @@ void Packer::pack_content(::std::filesystem::path const& file_path){
         read_bytes=static_cast<::std::uint64_t>(
             ::fgwsz::std_ifstream_read(
                 file
-                ,&(block[0])
+                ,this->block_.get()
                 ,static_cast<::std::streamsize>(this->block_bytes_)
                 ,file_path_string
             )
         );
         //将内存块中的文件内容信息编码混淆
-        for(::std::uint64_t index=0;index<read_bytes;++index){
-            block[index]=static_cast<char>(
-                static_cast<std::uint8_t>(block[index])^this->header_.key
-            );
-        }
+        this->key_xor(this->block_.get(),read_bytes);
         //将内存块中的文件内容信息写入包
-        ::fgwsz::std_ofstream_write(
-            this->package_
-            ,&(block[0])
-            ,static_cast<::std::streamsize>(read_bytes)
-            ,this->package_path_string_
-        );
+        this->package_write(this->block_.get(),read_bytes);
         //更新字节计数器
         count_bytes+=read_bytes;
     }

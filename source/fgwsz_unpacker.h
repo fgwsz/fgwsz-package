@@ -24,6 +24,8 @@ public:
     Unpacker& operator=(Unpacker const&)noexcept=delete;
 private:
     void reset_package(void);
+    ::std::uint64_t package_read(void* ptr,::std::uint64_t bytes);
+    void key_xor(void* ptr,::std::uint64_t bytes);
     void unpack_key(void);
     void unpack_relative_path_bytes(void);
     void unpack_relative_path_string(void);

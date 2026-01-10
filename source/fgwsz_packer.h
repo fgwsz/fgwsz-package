@@ -22,6 +22,8 @@ public:
     Packer(Packer const&)noexcept=delete;
     Packer& operator=(Packer const&)noexcept=delete;
 private:
+    void package_write(void const* src,::std::uint64_t bytes);
+    void key_xor(void* ptr,::std::uint64_t bytes);
     void pack_key(void);
     void pack_relative_path(
         ::std::filesystem::path const& file_path

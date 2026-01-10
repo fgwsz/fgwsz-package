@@ -53,96 +53,69 @@ void Unpacker::reset_package(void){
     //重置用于记录已读取包内容字节数的计数器
     this->package_count_bytes_=0;
 }
-void Unpacker::unpack_key(void){
+::std::uint64_t Unpacker::package_read(void* ptr,::std::uint64_t bytes){
     ::std::uint64_t read_bytes=::fgwsz::std_ifstream_read(
         this->package_
-        ,reinterpret_cast<char*>(&(this->header_.key))
-        ,sizeof(this->header_.key)
+        ,reinterpret_cast<char*>(ptr)
+        ,bytes
         ,this->package_path_string_
     );
-    if(sizeof(this->header_.key)!=read_bytes){
+    if(bytes!=read_bytes){
         FGWSZ_THROW_WHAT(
             "failed to read key: "+this->package_path_string_
         );
     }
     this->package_count_bytes_+=read_bytes;
+    return read_bytes;
+}
+void Unpacker::key_xor(void* ptr,::std::uint64_t bytes){
+    for(::std::uint64_t index=0;index<bytes;++index){
+        reinterpret_cast<::std::uint8_t*>(ptr)[index]^=this->header_.key;
+    }
+}
+void Unpacker::unpack_key(void){
+    this->package_read(&(this->header_.key),sizeof(this->header_.key));
 }
 void Unpacker::unpack_relative_path_bytes(void){
-    ::std::uint64_t read_bytes=::fgwsz::std_ifstream_read(
-        this->package_
-        ,reinterpret_cast<char*>(&(this->header_.relative_path_bytes))
+    this->package_read(
+        &(this->header_.relative_path_bytes)
         ,sizeof(this->header_.relative_path_bytes)
-        ,this->package_path_string_
     );
-    if(sizeof(this->header_.relative_path_bytes)!=read_bytes){
-        FGWSZ_THROW_WHAT(
-            "failed to read relative path bytes: "
-            +this->package_path_string_
-        );
-    }
-    this->package_count_bytes_+=read_bytes;
-    //解码relative path bytes的文件密钥xor混淆
-    //字节序辅助结构体
-    using number_type=
-        ::std::remove_cvref_t<decltype(this->header_.relative_path_bytes)>;
-    ::fgwsz::EndianHelper<number_type> net;
-    for(::std::uint8_t index=0;index<sizeof(net);++index){
-        net.byte_array[index]=static_cast<::std::uint8_t>(
-            reinterpret_cast<char*>(&(this->header_.relative_path_bytes))
-            [index]
-        )^this->header_.key;
-    }
     //将网络序转换为主机序,得到relative path bytes
     this->header_.relative_path_bytes=
-        ::fgwsz::net_to_host<number_type>(net.data);
+        ::fgwsz::net_to_host(this->header_.relative_path_bytes);
+    //解码relative path bytes的文件密钥xor混淆
+    this->key_xor(
+        &(this->header_.relative_path_bytes)
+        ,sizeof(this->header_.relative_path_bytes)
+    );
 }
 void Unpacker::unpack_relative_path_string(void){
     this->header_.relative_path_string
         .resize(this->header_.relative_path_bytes);
-    ::std::uint64_t read_bytes=::fgwsz::std_ifstream_read(
-        this->package_
-        ,this->header_.relative_path_string.data()
+    this->package_read(
+        this->header_.relative_path_string.data()
         ,this->header_.relative_path_bytes
-        ,this->package_path_string_
     );
-    if(this->header_.relative_path_bytes!=read_bytes){
-        FGWSZ_THROW_WHAT(
-            "failed to read relative path: "+this->package_path_string_
-        );
-    }
-    this->package_count_bytes_+=read_bytes;
     //解码relative path的文件密钥xor混淆
-    for(char& ch:this->header_.relative_path_string){
-        ch=static_cast<char>(
-            static_cast<::std::uint8_t>(ch)^this->header_.key
-        );
-    }
+    this->key_xor(
+        this->header_.relative_path_string.data()
+        ,this->header_.relative_path_bytes
+    );
 }
 void Unpacker::unpack_content_bytes(void){
-    ::std::uint64_t read_bytes=::fgwsz::std_ifstream_read(
-        this->package_
-        ,reinterpret_cast<char*>(&(this->header_.content_bytes))
+    this->package_read(
+        &(this->header_.content_bytes)
         ,sizeof(this->header_.content_bytes)
-        ,this->package_path_string_
     );
-    if(sizeof(this->header_.content_bytes)!=read_bytes){
-        FGWSZ_THROW_WHAT(
-            "failed to read content bytes: "+this->package_path_string_
-        );
-    }
-    this->package_count_bytes_+=read_bytes;
-    //解码content bytes的文件密钥xor混淆
-    //字节序辅助结构体
-    using number_type=
-        ::std::remove_cvref_t<decltype(this->header_.content_bytes)>;
-    ::fgwsz::EndianHelper<number_type> net;
-    for(::std::uint64_t index=0;index<sizeof(net);++index){
-        net.byte_array[index]=static_cast<::std::uint8_t>(
-            reinterpret_cast<char*>(&(this->header_.content_bytes))[index]
-        )^this->header_.key;
-    }
     //将网络序转换为主机序,得到content bytes
-    this->header_.content_bytes=::fgwsz::net_to_host<number_type>(net.data);
+    this->header_.content_bytes=
+        ::fgwsz::net_to_host(this->header_.content_bytes);
+    //解码content bytes的文件密钥xor混淆
+    this->key_xor(
+        &(this->header_.content_bytes)
+        ,sizeof(this->header_.content_bytes)
+    );
 }
 void Unpacker::unpack_header(void){
     this->unpack_key();
@@ -186,11 +159,7 @@ void Unpacker::unpack_content(
         );
         this->package_count_bytes_+=read_bytes;
         //解码content的文件密钥xor混淆
-        for(::std::uint64_t index=0;index<read_bytes;++index){
-            block[index]=static_cast<char>(
-                static_cast<::std::uint8_t>(block[index])^this->header_.key
-            );
-        }
+        this->key_xor(block,read_bytes);
         //将分块读取的content写入文件
         ::fgwsz::std_ofstream_write(
             file
