@@ -22,6 +22,7 @@ public:
     Packer(Packer const&)noexcept=delete;
     Packer& operator=(Packer const&)noexcept=delete;
 private:
+    void set_read_only(void);
     void package_write(void const* src,::std::uint64_t bytes);
     void key_xor(void* ptr,::std::uint64_t bytes);
     void pack_key(void);

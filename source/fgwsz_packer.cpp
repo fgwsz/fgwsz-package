@@ -36,6 +36,17 @@ Packer::~Packer(void){
     if(this->package_.is_open()){
         this->package_.close();
     }
+    this->set_read_only();
+}
+void Packer::set_read_only(void){
+    //移除包文件的所有写权限
+    ::std::filesystem::permissions(
+        ::std::filesystem::absolute(this->package_path_string_)
+        ,::std::filesystem::perms::owner_write
+            |::std::filesystem::perms::group_write
+            |::std::filesystem::perms::others_write
+        ,::std::filesystem::perm_options::remove
+    );
 }
 void Packer::package_write(void const* src,::std::uint64_t bytes){
    ::fgwsz::std_ofstream_write(
