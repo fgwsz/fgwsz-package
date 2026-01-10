@@ -7,6 +7,8 @@
 #include<fstream>   //::std::ifstream
 #include<filesystem>//::std::filesystem
 
+#include"fgwsz_header.h"
+
 namespace fgwsz{
 
 class Unpacker{
@@ -21,31 +23,14 @@ public:
     Unpacker(Unpacker const&)noexcept=delete;
     Unpacker& operator=(Unpacker const&)noexcept=delete;
 private:
-    struct Header{
-        ::std::uint8_t key;
-        ::std::uint64_t relative_path_bytes;
-        ::std::string relative_path_string;
-        ::std::uint64_t content_bytes;
-    };
     void reset_package(void);
-    void unpack_key(::std::uint8_t& key);
-    void unpack_relative_path_bytes(
-        ::std::uint8_t key
-        ,::std::uint64_t& relative_path_bytes
-    );
-    void unpack_relative_path_string(
-        ::std::uint8_t key
-        ,::std::uint64_t relative_path_bytes
-        ,::std::string& relative_path_string
-    );
-    void unpack_content_bytes(
-        ::std::uint8_t key
-        ,::std::uint64_t& content_bytes
-    );
-    void unpack_header(Header& header);
+    void unpack_key(void);
+    void unpack_relative_path_bytes(void);
+    void unpack_relative_path_string(void);
+    void unpack_content_bytes(void);
+    void unpack_header(void);
     void unpack_content(
         ::std::filesystem::path const& output_dir_path
-        ,Unpacker::Header const& header
         ,char* block
         ,::std::uint64_t block_bytes
     );
@@ -53,6 +38,7 @@ private:
     ::std::string package_path_string_;
     ::std::uint64_t package_bytes_;
     ::std::uint64_t package_count_bytes_;
+    ::fgwsz::Header header_;
 };
 
 }//namespace fgwsz

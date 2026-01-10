@@ -6,7 +6,6 @@
 #include<filesystem>//::std::filesystem
 #include<fstream>   //::std::ofstream ::std::ifstream
 #include<vector>    //::std::vector
-#include<memory>    //::std::unique_ptr
 
 #include"fgwsz_endian.hpp"
 #include"fgwsz_except.h"
@@ -31,88 +30,98 @@ Packer::Packer(::std::filesystem::path const& package_path){
             "failed to open package file: "+this->package_path_string_
         );
     }
+    this->block_=::std::move(::std::make_unique<char[]>(this->block_bytes_));
 }
 Packer::~Packer(void){
     if(this->package_.is_open()){
         this->package_.close();
     }
 }
-void Packer::pack_file(
+void Packer::pack_key(void){
+    //MSVC中没有实现特化类型为::std::uint8_t的随机数生成器
+    //因此改为使用更大取值范围的无符号整数类型转到::std::uint8_t
+    this->header_.key=
+        static_cast<::std::uint8_t>(::fgwsz::random<unsigned short>(1,255));
+    //将key写入包
+    ::fgwsz::std_ofstream_write(
+        this->package_
+        ,reinterpret_cast<char*>(&(this->header_.key))
+        ,static_cast<::std::streamsize>(sizeof(this->header_.key))
+        ,this->package_path_string_
+    );
+}
+void Packer::pack_relative_path(
     ::std::filesystem::path const& file_path
     ,::std::filesystem::path const& base_dir_path
 ){
-    //========================================================================
-    //输入参数检查阶段
-    //========================================================================
-    ::fgwsz::path_assert_exists(file_path);
-    ::fgwsz::path_assert_is_not_directory(file_path);
-    ::fgwsz::path_assert_is_not_symlink(file_path);
-    ::fgwsz::path_assert_exists(base_dir_path);
-    ::fgwsz::path_assert_is_directory(base_dir_path);
-    //========================================================================
-    //文件头信息处理阶段
-    //========================================================================
-    //文件头信息包含4部分:
-    //[key|relative path bytes|relative path|content bytes]
-    //得到文件的密钥
-    //MSVC中没有实现特化类型为::std::uint8_t的随机数生成器
-    //因此改为使用更大取值范围的无符号整数类型转到::std::uint8_t
-    auto key=
-        static_cast<::std::uint8_t>(::fgwsz::random<unsigned short>(1,255));
     //根据基准目录路径和文件路径得到归档之后的相对路径
     auto relative_path=::fgwsz::relative_path(file_path,base_dir_path);
     //检查文件的相对路径是否安全(不安全情况,存在溢出输出目录的风险)
     ::fgwsz::path_assert_is_safe_relative_path(relative_path);
-    //得到相对路径和相对路径的所占用的字节数
-    ::std::string relative_path_string=relative_path.generic_string();
-    ::std::uint64_t relative_path_bytes=relative_path_string.size();
-    //得到文件内容字节数
-    ::std::uint64_t content_bytes=::std::filesystem::file_size(file_path);
-    //构建文件头信息缓冲区
-    ::std::vector<char> buffer={};
-    buffer.resize(
-        sizeof(key)
-        +sizeof(relative_path_bytes)
-        +relative_path_bytes
-        +sizeof(content_bytes)
+    this->header_.relative_path_string=relative_path.generic_string();
+    //将relative_path_bytes转换为网络序
+    this->header_.relative_path_bytes=::fgwsz::host_to_net<::std::uint64_t>(
+        static_cast<::std::uint64_t>(this->header_.relative_path_string.size())
     );
-    //将文件头信息写入缓冲区
-    //写入key
-    ::std::uint64_t buffer_index=0;
-    buffer[0]=key;
-    ++buffer_index;
-    //写入relative path bytes
-    ::fgwsz::EndianHelper<::std::uint64_t> net_endian;
-    net_endian.data=
-        ::fgwsz::host_to_net<::std::uint64_t>(relative_path_bytes);
-    for(::std::uint8_t byte:net_endian.byte_array){
-        buffer[buffer_index]=static_cast<char>(byte^key);//使用密钥进行xor混淆
-        ++buffer_index;
+    //使用key对relative_path_bytes和relative_path_string进行xor混淆
+    for(::std::uint64_t index=0;index<sizeof(::std::uint64_t);++index){
+        reinterpret_cast<char*>(&(this->header_.relative_path_bytes))[index]=
+            static_cast<::std::uint8_t>(
+                reinterpret_cast<char*>(&(this->header_.relative_path_bytes))
+                [index]
+            )^this->header_.key;
     }
-    //写入relative path
-    for(char byte:relative_path_string){
-        buffer[buffer_index]=static_cast<char>(
-            static_cast<::std::uint8_t>(byte)^key
-        );//使用密钥进行xor混淆
-        ++buffer_index;
+    for(char& ch:this->header_.relative_path_string){
+        ch=static_cast<::std::uint8_t>(ch)^this->header_.key;
     }
-    //写入content bytes
-    net_endian.data=
-        ::fgwsz::host_to_net<::std::uint64_t>(content_bytes);
-    for(::std::uint8_t byte:net_endian.byte_array){
-        buffer[buffer_index]=static_cast<char>(byte^key);//使用密钥进行xor混淆
-        ++buffer_index;
-    }
-    //将缓冲区的文件头信息写入包
+    //将relative_path_bytes和relative_path_string写入包
     ::fgwsz::std_ofstream_write(
         this->package_
-        ,buffer.data()
-        ,static_cast<::std::streamsize>(buffer.size())
+        ,reinterpret_cast<char*>(&(this->header_.relative_path_bytes))
+        ,static_cast<::std::streamsize>(
+            sizeof(this->header_.relative_path_bytes)
+        )
         ,this->package_path_string_
     );
-    //========================================================================
-    //文件内容信息处理阶段
-    //========================================================================
+    ::fgwsz::std_ofstream_write(
+        this->package_
+        ,this->header_.relative_path_string.data()
+        ,static_cast<::std::streamsize>(
+            this->header_.relative_path_string.size()
+        )
+        ,this->package_path_string_
+    );
+}
+void Packer::pack_content_bytes(::std::filesystem::path const& file_path){
+    //将content_bytes转换为网络序
+    this->content_bytes_=::std::filesystem::file_size(file_path);
+    this->header_.content_bytes=::fgwsz::host_to_net<::std::uint64_t>(
+        static_cast<::std::uint64_t>(this->content_bytes_)
+    );
+    //使用key对content_bytes进行xor混淆
+    for(::std::uint64_t index=0;index<sizeof(::std::uint64_t);++index){
+        reinterpret_cast<char*>(&(this->header_.content_bytes))[index]=
+            static_cast<::std::uint8_t>(
+                reinterpret_cast<char*>(&(this->header_.content_bytes))[index]
+            )^this->header_.key;
+    }
+    //将content_bytes写入包
+    ::fgwsz::std_ofstream_write(
+        this->package_
+        ,reinterpret_cast<char*>(&(this->header_.content_bytes))
+        ,static_cast<::std::streamsize>(sizeof(this->header_.content_bytes))
+        ,this->package_path_string_
+    );
+}
+void Packer::pack_header(
+    ::std::filesystem::path const& file_path
+    ,::std::filesystem::path const& base_dir_path
+){
+    this->pack_key();
+    this->pack_relative_path(file_path,base_dir_path);
+    this->pack_content_bytes(file_path);
+}
+void Packer::pack_content(::std::filesystem::path const& file_path){
     //二进制方式打开文件
     ::std::ifstream file(file_path,::std::ios::binary);
     ::std::string file_path_string=file_path.generic_string();
@@ -120,28 +129,24 @@ void Packer::pack_file(
     if(!file.is_open()){
         FGWSZ_THROW_WHAT("failed to open file: "+file_path_string);
     }
-    //设置内存块
-    constexpr ::std::uint64_t block_bytes=1024*1024;//1MB
-    //MSVC中栈全部内存默认1MB,直接分配在栈上会导致栈溢出,改为分配在堆上
-    auto block_body=::std::make_unique<char[]>(block_bytes);
-    char* block=block_body.get();
+    char* block=this->block_.get();
     //分块读取文件内容
     ::std::uint64_t count_bytes=0;
     ::std::uint64_t read_bytes=0;
-    while(count_bytes<content_bytes){
+    while(count_bytes<this->content_bytes_){
         //读取文件内容到块中
         read_bytes=static_cast<::std::uint64_t>(
             ::fgwsz::std_ifstream_read(
                 file
                 ,&(block[0])
-                ,static_cast<::std::streamsize>(block_bytes)
+                ,static_cast<::std::streamsize>(this->block_bytes_)
                 ,file_path_string
             )
         );
         //将内存块中的文件内容信息编码混淆
         for(::std::uint64_t index=0;index<read_bytes;++index){
             block[index]=static_cast<char>(
-                key^static_cast<std::uint8_t>(block[index])
+                static_cast<std::uint8_t>(block[index])^this->header_.key
             );
         }
         //将内存块中的文件内容信息写入包
@@ -155,10 +160,24 @@ void Packer::pack_file(
         count_bytes+=read_bytes;
     }
     //文件内容读取不完整
-    if(count_bytes!=content_bytes){
+    if(count_bytes!=this->content_bytes_){
         FGWSZ_THROW_WHAT("file read incomplete: "+file_path_string);
     }
-    file.close();
+}
+void Packer::pack_file(
+    ::std::filesystem::path const& file_path
+    ,::std::filesystem::path const& base_dir_path
+){
+    //输入参数检查阶段
+    ::fgwsz::path_assert_exists(file_path);
+    ::fgwsz::path_assert_is_not_directory(file_path);
+    ::fgwsz::path_assert_is_not_symlink(file_path);
+    ::fgwsz::path_assert_exists(base_dir_path);
+    ::fgwsz::path_assert_is_directory(base_dir_path);
+    //文件头信息处理阶段
+    this->pack_header(file_path,base_dir_path);
+    //文件内容信息处理阶段
+    this->pack_content(file_path);
 }
 void Packer::pack_dir(::std::filesystem::path const& dir_path){
     //检查路径是否存在
